@@ -2,6 +2,8 @@ import torch
 import os
 import numpy as np
 from PIL import Image
+import glob
+import pandas as pd
 
 
 class LymphBags(torch.utils.data.Dataset):
@@ -12,7 +14,7 @@ class LymphBags(torch.utils.data.Dataset):
         self.mode = mode
         self.df = df
         self.dir = bags_dir
-        self.bags = list(filter(lambda x: x[0] == 'P', os.listdir(bags_dir)))
+        self.bags = [i for i in df['ID']]
 
     def __len__(self):
         return len(self.bags)
@@ -28,7 +30,7 @@ class LymphBags(torch.utils.data.Dataset):
                 images.append(img)
             images = torch.cat(images)
             idx_ = self.df[self.df['ID'] == self.bags[index]].index[0]
-            label = self.df.iloc[idx_, 1]
+            label = self.df.loc[idx_][1]
             return images, label
         else:
             bags = os.path.join(self.dir, self.bags[index])
@@ -40,3 +42,28 @@ class LymphBags(torch.utils.data.Dataset):
                 images.append(img)
             images = torch.cat(images)
             return images
+
+
+class LymphImages(torch.utils.data.Dataset):
+    def __init__(self, train_path, transforms=None):
+
+        self.transforms = transforms
+        self.train_path = train_path
+
+        self.L_img = glob.glob(os.path.join(self.train_path, '*/*.jpg'))
+
+    def __len__(self):
+        return len(self.L_img)
+
+    def __getitem__(self, index):
+        img = Image.open(self.L_img[index])
+        return img
+
+
+def metadata_build(path):
+    df_train = pd.read_csv(path)
+    df_train['GENDER'] = df_train.GENDER.apply(lambda x: int(x == 'F'))
+    df_train['DOB'] = df_train['DOB'].apply(lambda x: x.replace("-", "/"))
+    df_train['AGE'] = df_train['DOB'].apply(
+        lambda x: 2020-int(x.split("/")[-1]))
+    return df_train

@@ -19,25 +19,23 @@ class Attention(nn.Module):
         )
 
         self.classifier = nn.Sequential(
-            nn.Linear(self.L*self.K, 512),
-            nn.Tanh(),
-            nn.Linear(512, 128),
-            nn.Tanh(),
-            nn.Linear(128, 1)
+            nn.Linear(512*7*7, 2),
+            nn.LogSoftmax()
         )
 
     def forward(self, x):
         x = x.squeeze(0)
 
         H = self.feature_extractor(x)  # NxL
-        H = H.view(-1, 512)
-        A = self.attention(H)  # NxK
-        A = torch.transpose(A, 1, 0)  # KxN
-        A = F.softmax(A, dim=1)  # softmax over N
+        H = H.view(-1, 512*7*7)
+        M = torch.mean(H, dim=0).unsqueeze(0)
 
-        M = torch.mm(A, H)  # KxL
+        # A = self.attention(H)  # NxK
+        # A = torch.transpose(A, 1, 0)  # KxN
+        # A = F.softmax(A, dim=1)  # softmax over N
+        # M = torch.mm(A, H)  # KxL
 
         Y_prob = self.classifier(M)
-        Y_hat = torch.ge(Y_prob, 0.)
+        Y_hat = torch.argmax(Y_prob)
 
-        return Y_prob, Y_hat, A
+        return Y_prob, Y_hat

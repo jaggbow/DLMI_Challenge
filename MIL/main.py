@@ -25,41 +25,106 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import models, transforms, datasets
 from torchvision.utils import make_grid
 
-from data import LymphBags
+from data import LymphBags, LymphImages, metadata_build
 from model import Attention
 from trainer import Trainer
 
 train_dir = 'input/trainset'
+train_meta = 'input/trainset/trainset_true.csv'
 test_dir = 'input/testset'
+test_meta = 'input/testset/testset_data.csv'
 device = 'cpu'
+mode = 'train'
 
-df_train = pd.read_csv('input/trainset/trainset_true.csv')
-df_train['GENDER'] = df_train.GENDER.apply(lambda x: int(x == 'F'))
-df_train['DOB'] = df_train['DOB'].apply(lambda x: x.replace("-", "/"))
-df_train['AGE'] = df_train['DOB'].apply(lambda x: 2020-int(x.split("/")[-1]))
-df_test = pd.read_csv('input/testset/testset_data.csv')
 
-# Data Augmentation
-tsfms = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225])
-])
-trainset = LymphBags(train_dir, df_train, transforms=tsfms)
-testset = LymphBags(test_dir, df_test, transforms=tsfms)
+if mode == 'train':
 
-train_loader = DataLoader(trainset, batch_size=1, shuffle=True)
+    # Metadatas
+    df_train = metadata_build(train_meta)
+    df_train, df_valid, _, _, = train_test_split(
+        df_train, df_train['LABEL'], stratify=df_train['LABEL'], random_state=42, test_size=0.2)
+    df_test = metadata_build(test_meta)
 
-# Define feature extractor
-feat_extractor = models.resnet34(pretrained=True).to(device)
-feat_extractor = torch.nn.Sequential(*(list(feat_extractor.children())[:-1]))
-# Define model
-model = Attention(head=feat_extractor, L=512)
-model = model.to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-3,
-                       betas=(0.9, 0.999), weight_decay=1e-5)
+    # Data Augmentation
+    tt = transforms.RandomChoice([
+        transforms.RandomRotation(0, 0),
+        transforms.RandomRotation(90, 90),
+        transforms.RandomRotation(180, 180),
+        transforms.RandomRotation(270, 270)
+    ]
+    )
 
-# Initialize the Trainer
-tr = Trainer(model=model, optimizer=optimizer,
-             train_loader=train_loader, epochs=20, device=device)
-tr.train()
+    tsfms = transforms.Compose([
+        tt,
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                             std=[0.5, 0.5, 0.5])
+    ])
+
+    # Datasets
+    trainset = LymphBags(train_dir, df_train, transforms=tsfms)
+    validset = LymphBags(train_dir, df_valid, transforms=tsfms)
+    testset = LymphBags(test_dir, df_test, transforms=tsfms)
+
+    dd = LymphImages(train_dir, tsfms)
+    train_loader = DataLoader(trainset, batch_size=1, shuffle=True)
+    test_loader = DataLoader(testset, batch_size=1, shuffle=True)
+    valid_loader = DataLoader(validset, batch_size=1, shuffle=True)
+
+    # Define feature extractor
+    feat_extractor = models.resnet34(pretrained=True).to(device)
+    feat_extractor = torch.nn.Sequential(
+        *(list(feat_extractor.children())[:-2]))
+    # Define model
+    model = Attention(head=feat_extractor, L=512)
+    model = model.to(device)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4,
+                           betas=(0.9, 0.999), weight_decay=1e-5)
+
+    # Initialize the Trainer
+    tr = Trainer(model=model, optimizer=optimizer,
+                 train_loader=train_loader, epochs=20, device=device, valid_loader=valid_loader)
+    tr.train()
+
+else:
+
+    test_dir = 'input/testset'
+    test_meta = 'input/testset/testset_data.csv'
+    device = 'cpu'
+
+    # Metadatas
+    df_test = metadata_build(test_meta)
+
+    # Data Augmentation
+    tsfms = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                             std=[0.5, 0.5, 0.5])
+    ])
+
+    # Datasets
+    testset = LymphBags(test_dir, df_test, transforms=tsfms)
+    test_loader = DataLoader(testset, batch_size=1, shuffle=False)
+
+    # Define feature extractor
+    feat_extractor = models.resnet34(pretrained=True).to(device)
+    feat_extractor = torch.nn.Sequential(
+        *(list(feat_extractor.children())[:-2]))
+
+    # Define model
+    model = Attention(head=feat_extractor, L=512)
+    model = model.to(device)
+    model.load_state_dict(torch.load(
+        'saved_model.pt', map_location=torch.device('cpu')))
+
+    model.eval()
+    L = []
+    for batch_idx, (data, label) in enumerate(tqdm(test_loader)):
+        bag_label = label[0].unsqueeze(0).unsqueeze(1)
+        data, bag_label = data.to(
+            device), bag_label.to(device)
+
+        prediction, pred_hat, _ = model(data)
+        L.append(prediction)
+
+    print(L)
