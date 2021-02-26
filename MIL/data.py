@@ -41,7 +41,7 @@ class LymphBags(torch.utils.data.Dataset):
                     img = self.transforms(img).unsqueeze(0)
                 images.append(img)
             images = torch.cat(images)
-            return images
+            return images, self.bags[index]
 
 
 class LymphImages(torch.utils.data.Dataset):
