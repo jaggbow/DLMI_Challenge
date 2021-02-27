@@ -4,18 +4,25 @@ from torch.functional import F
 
 
 class Attention(nn.Module):
-    def __init__(self, K=64):
+    def __init__(self, K=64, L=128, dropout_rate=0.2, conv_bias=True):
         super(Attention, self).__init__()
+
         self.K = K
+        self.L = L
+        self.conv_bias = True
+        self.dropout_rate = dropout_rate
+        self.conv_bias = conv_bias
 
-        self.feature_extractor = ResMIL(K=self.K)
+        self.feature_extractor = ResMIL(
+            K=self.K, dropout_rate=self.dropout_rate, conv_bias=self.conv_bias)
 
-        ## Attention #########################################
-        # self.attention = nn.Sequential(
-        #     nn.Linear(self.L, self.D),
-        #     nn.Tanh(),
-        #     nn.Linear(self.D, self.K)
-        # )
+        # Attention #########################################
+        self.attention = nn.Sequential(
+            nn.Linear(self.K*8, self.L),
+            nn.Tanh(),
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(self.L, 1)
+        )
 
         ## Classifier ########################################
         self.classifier = nn.Sequential(
@@ -28,12 +35,12 @@ class Attention(nn.Module):
 
         H = self.feature_extractor(x)  # NxL
         H = H.view(-1, self.K*8)
-        M = torch.mean(H, dim=0).unsqueeze(0)
 
-        # A = self.attention(H)  # NxK
-        # A = torch.transpose(A, 1, 0)  # KxN
-        # A = F.softmax(A, dim=1)  # softmax over N
-        # M = torch.mm(A, H)  # KxL
+        # Attention
+        A = self.attention(H)  # NxK
+        A = torch.transpose(A, 1, 0)  # KxN
+        A = F.softmax(A, dim=1)  # softmax over N
+        M = torch.mm(A, H)  # KxL
 
         Y_prob = self.classifier(M)
         Y_prob = torch.log(1e-10 + torch.cat([Y_prob, 1-Y_prob], dim=1))
@@ -42,20 +49,29 @@ class Attention(nn.Module):
 
 
 class ResMIL(nn.Module):
-    def __init__(self, K=64):
+    def __init__(self, K=64, dropout_rate=0.2, conv_bias=True):
         super(ResMIL, self).__init__()
 
+        self.conv_bias = conv_bias
+        self.dropout_rate = dropout_rate
+        self.K = K
+
         self.initial = nn.Sequential(
-            nn.Conv2d(3, K, kernel_size=7, stride=2, padding=3, bias=False),
-            nn.BatchNorm2d(K),
+            nn.Conv2d(3, self.K, kernel_size=7, stride=2,
+                      padding=3, bias=self.conv_bias),
             nn.ReLU(),
+            nn.Dropout(self.dropout_rate)
         )
 
         self.model = nn.Sequential(
-            ResBlock(K, K),
-            ResBlock(K, K*2),
-            ResBlock(K*2, K*4),
-            ResBlock(K*4, K*8, final=True),
+            ResBlock(self.K, self.K, dropout_rate=dropout_rate,
+                     conv_bias=self.conv_bias),
+            ResBlock(self.K, self.K*2, dropout_rate=dropout_rate,
+                     conv_bias=self.conv_bias),
+            ResBlock(self.K*2, self.K*4, dropout_rate=dropout_rate,
+                     conv_bias=self.conv_bias),
+            ResBlock(self.K*4, self.K*8, final=True,
+                     dropout_rate=dropout_rate, conv_bias=self.conv_bias),
             nn.AdaptiveAvgPool2d((1, 1))
         )
 
@@ -66,43 +82,41 @@ class ResMIL(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, K_in, K_out, final=False):
+    def __init__(self, K_in, K_out, final=False, dropout_rate=0.2, conv_bias=True):
         super(ResBlock, self).__init__()
 
         self.K_in = K_in
         self.K_out = K_out
         self.final = final
+        self.dropout_rate = dropout_rate
+        self.conv_bias = conv_bias
 
         if self.final:
             self.l = nn.Sequential(
                 nn.Conv2d(self.K_in, self.K_out, kernel_size=3,
-                          stride=2, padding=1, bias=False),
-
-                nn.BatchNorm2d(self.K_out),
+                          stride=2, padding=1, bias=self.conv_bias),
                 nn.ReLU(),
+                nn.Dropout(self.dropout_rate),
 
                 nn.Conv2d(self.K_out, self.K_out, kernel_size=3,
-                          stride=1, padding=1, bias=False),
+                          stride=1, padding=1, bias=self.conv_bias),
             )
         else:
             self.l = nn.Sequential(
                 nn.Conv2d(self.K_in, self.K_out, kernel_size=3,
-                          stride=2, padding=1, bias=False),
-
-                nn.BatchNorm2d(self.K_out),
+                          stride=2, padding=1, bias=self.conv_bias),
                 nn.ReLU(),
+                nn.Dropout(self.dropout_rate),
 
                 nn.Conv2d(self.K_out, self.K_out, kernel_size=3,
-                          stride=1, padding=1, bias=False),
-
-                nn.BatchNorm2d(self.K_out),
+                          stride=1, padding=1, bias=self.conv_bias),
                 nn.ReLU(),
+                nn.Dropout(self.dropout_rate),
             )
 
         self.ds = nn.Sequential(
             nn.Conv2d(self.K_in, self.K_out,
-                      kernel_size=(1, 1), stride=2, padding=0, bias=False),
-            nn.BatchNorm2d(self.K_out)
+                      kernel_size=(1, 1), stride=2, padding=0, bias=self.conv_bias),
         )
 
         self.relu = nn.ReLU()
