@@ -26,11 +26,11 @@ class Attention(nn.Module):
 
         ## Classifier ########################################
         self.classifier = nn.Sequential(
-            nn.Linear(K*8, 1),
+            nn.Linear(K*8 + 3, 1),
             nn.Sigmoid(),
         )
 
-    def forward(self, x):
+    def forward(self, x,  gender, count, age):
         x = x.squeeze(0)
 
         H = self.feature_extractor(x)  # NxL
@@ -41,6 +41,8 @@ class Attention(nn.Module):
         A = torch.transpose(A, 1, 0)  # KxN
         A = F.softmax(A, dim=1)  # softmax over N
         M = torch.mm(A, H)  # KxL
+
+        M = torch.cat([M, gender, age, count], dim=1)
 
         Y_prob = self.classifier(M)
         Y_prob = torch.log(1e-10 + torch.cat([Y_prob, 1-Y_prob], dim=1))

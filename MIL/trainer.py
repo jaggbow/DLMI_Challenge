@@ -29,6 +29,8 @@ class Trainer():
             'Validation Balanced Acc': []
         }
 
+        self.best_logs = [0., 0.]
+
     def train(self):
 
         for epoch in range(self.epochs):
@@ -42,17 +44,16 @@ class Trainer():
             # reset gradients
             self.optimizer.zero_grad()
 
-            for batch_idx, (data, label) in enumerate(self.train_loader):
+            for batch_idx, (data, gender, count, age, label) in enumerate(self.train_loader):
 
                 bag_label = label[0].unsqueeze(0)
                 data, bag_label = data.to(
                     self.device), bag_label.to(self.device)
-
-                # reset gradients
-                self.optimizer.zero_grad()
+                gender, count, age = gender.to(self.device), count.to(
+                    self.device), age.to(self.device)
 
                 # calculate loss and metrics
-                prediction, pred_hat = self.model(data)
+                prediction, pred_hat = self.model(data, gender, count, age)
 
                 loss += self.loss_f(prediction, bag_label)
                 ind_loss += 1
@@ -109,7 +110,7 @@ class Trainer():
         test_acc = []
         y_true, y_pred = [], []
 
-        for batch_idx, (data, label) in enumerate(self.valid_loader):
+        for batch_idx, (data, gender, count, age, label) in enumerate(self.valid_loader):
 
             with torch.no_grad():
 
@@ -117,7 +118,10 @@ class Trainer():
                 data, bag_label = data.to(
                     self.device), bag_label.to(self.device)
 
-                prediction, pred_hat = self.model(data)
+                gender, count, age = gender.to(self.device), count.to(
+                    self.device), age.to(self.device)
+
+                prediction, pred_hat = self.model(data, gender, count, age)
                 loss = self.loss_f(prediction, bag_label)
                 acc = (pred_hat == bag_label).float()
 
@@ -138,8 +142,9 @@ class Trainer():
         self.logs['Validation Accuracy'].append(mean_acc)
         self.logs['Validation Balanced Acc'].append(balanced_acc)
 
-        if max([0.]+self.logs['Validation Balanced Acc'][:-1]) < balanced_acc:
+        if (self.best_logs[0] <= balanced_acc) and (self.best_logs[1] < self.logs['Balanced Acc'][-1]):
             print('Saving model ...')
+            self.best_logs = (balanced_acc, self.logs['Balanced Acc'][-1])
             self.save_model()
 
     def predict(self, test_loader):
@@ -149,9 +154,11 @@ class Trainer():
         L = []
 
         with torch.no_grad():
-            for batch_idx, (data, label) in enumerate(tqdm(test_loader)):
+            for batch_idx, (data, gender, count, age, label) in enumerate(tqdm(test_loader)):
                 data = data.to(self.device)
-                prediction, pred_hat = self.model(data)
+                gender, count, age = gender.to(self.device), count.to(
+                    self.device), age.to(self.device)
+                prediction, pred_hat = self.model(data, gender, count, age)
                 sub_dict['Predicted'].append(pred_hat.item())
                 sub_dict['ID'].append(label[0])
 

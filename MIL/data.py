@@ -30,10 +30,14 @@ class LymphBags(torch.utils.data.Dataset):
                 images.append(img)
             images = torch.cat(images)
             idx_ = self.df[self.df['ID'] == self.bags[index]].index[0]
+            gender = torch.as_tensor([self.df.loc[idx_][2]], dtype=torch.float)
+            count = torch.as_tensor([self.df.loc[idx_][4]], dtype=torch.float)
+            age = torch.as_tensor([self.df.loc[idx_][-1]], dtype=torch.float)
             label = self.df.loc[idx_][1]
-            return images, label
+            return images, gender, count, age, label
         else:
             bags = os.path.join(self.dir, self.bags[index])
+            idx_ = self.df[self.df['ID'] == self.bags[index]].index[0]
             images = []
             for bag in os.listdir(bags):
                 img = Image.open(os.path.join(bags, bag))
@@ -41,7 +45,10 @@ class LymphBags(torch.utils.data.Dataset):
                     img = self.transforms(img).unsqueeze(0)
                 images.append(img)
             images = torch.cat(images)
-            return images, self.bags[index]
+            gender = torch.as_tensor([self.df.loc[idx_][2]], dtype=torch.float)
+            count = torch.as_tensor([self.df.loc[idx_][4]], dtype=torch.float)
+            age = torch.as_tensor([self.df.loc[idx_][-1]], dtype=torch.float)
+            return images, gender, count, age, self.bags[index]
 
 
 class LymphImages(torch.utils.data.Dataset):
